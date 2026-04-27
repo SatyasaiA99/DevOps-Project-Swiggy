@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     tools {
-        nodejs 'node23'
+        nodejs 'node18'
     }
 
     stages {
@@ -22,9 +22,20 @@ pipeline {
         stage('Build Artifact') {
             steps {
                 sh '''
-                rm -rf build
+                rm -rf build node-app.tar.gz
                 mkdir build
-                cp -r * build/
+
+                cp -r package*.json build/
+                cp -r *.js build/ || true
+                cp -r config build/ || true
+                cp -r routes build/ || true
+                cp -r controllers build/ || true
+                cp -r models build/ || true
+
+                cd build
+                npm install --production
+                cd ..
+
                 tar -czf node-app.tar.gz build
                 '''
             }
@@ -36,27 +47,27 @@ pipeline {
             }
         }
 
-        stage('Deploy & Run') {
+        stage('Run App (Temporary)') {
             steps {
                 sh '''
-                # Stop old Node app if running
                 pkill node || true
-
-                # Extract artifact
                 tar -xzf node-app.tar.gz
                 cd build
-
-                # Run app in background
                 nohup node index.js > app.log 2>&1 &
                 '''
             }
         }
 
-        stage('Verify App') {
+        stage('Check Public Access') {
             steps {
                 sh '''
                 sleep 5
-                curl http://localhost:4000 || echo "App not reachable"
+
+                echo "Checking via localhost..."
+                curl http://localhost:4000 || echo "Local check failed"
+
+                echo "Checking via Public IP..."
+                curl http://$(curl -s ifconfig.me):4000 || echo "Public IP check failed"
                 '''
             }
         }
@@ -64,7 +75,7 @@ pipeline {
 
     post {
         success {
-            echo "✅ Application is running"
+            echo "✅ Artifact created & app accessible via public IP"
         }
         failure {
             echo "❌ Pipeline failed"
