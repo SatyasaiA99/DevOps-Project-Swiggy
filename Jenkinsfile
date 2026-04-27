@@ -1,74 +1,64 @@
-pipeline{
+pipeline {
     agent any
-    tools{
-        jdk 'jdk21'
-        nodejs 'node23'
+
+    tools {
+        nodejs 'node23'   // Make sure this exists in Jenkins tools
     }
+
     environment {
-        SCANNER_HOME=tool 'sonar-scanner'
+        APP_NAME = "swiggy-app"
+        CONTAINER_NAME = "swiggy-container"
     }
+
     stages {
-        stage('clean workspace'){
-            steps{
-                cleanWs()
+
+        stage('Checkout Code') {
+            steps {
+                git url: 'https://github.com/SatyasaiA99/DevOps-Project-Swiggy.git', branch: 'master'
             }
         }
-        stage('Checkout from Git'){
-            steps{
-                git 'https://github.com/KastroVKiran/DevOps-Project-Swiggy.git'
+
+        stage('Check Node Version') {
+            steps {
+                sh 'node -v'
+                sh 'npm -v'
             }
         }
-        stage("Sonarqube Analysis "){
-            steps{
-                withSonarQubeEnv('sonar-server') {
-                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=Swiggy \
-                    -Dsonar.projectKey=Swiggy '''
-                }
-            }
-        }
-        stage("quality gate"){
-           steps {
-                script {
-                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
-                }
-            } 
-        }
+
         stage('Install Dependencies') {
             steps {
-                sh "npm install"
+                sh 'npm install'
             }
         }
-        stage('OWASP FS SCAN') {
+
+        stage('Build Docker Image') {
             steps {
-                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
-                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                sh 'docker build -t $APP_NAME .'
             }
         }
-        stage('TRIVY FS SCAN') {
+
+        stage('Stop Old Container') {
             steps {
-                sh "trivy fs . > trivyfs.txt"
+                sh '''
+                docker stop $CONTAINER_NAME || true
+                docker rm $CONTAINER_NAME || true
+                '''
             }
         }
-        stage("Docker Build & Push"){
-            steps{
-                script{
-                   withDockerRegistry(credentialsId: 'docker-creds', toolName: 'docker'){   
-                       sh "docker build -t swiggy ."
-                       sh "docker tag swiggy kastrov/swiggy:latest "
-                       sh "docker push kastrov/swiggy:latest "
-                    }
-                }
+
+        stage('Run Container') {
+            steps {
+                sh 'docker run -d -p 3000:3000 --name $CONTAINER_NAME $APP_NAME'
             }
         }
-        stage("TRIVY"){
-            steps{
-                sh "trivy image kastrov/swiggy:latest > trivy.txt" 
-            }
+    }
+
+    post {
+        success {
+            echo '✅ Deployment Successful!'
         }
-        stage('Deploy to container'){
-            steps{
-                sh 'docker run -d --name swiggy -p 3000:3000 kastrov/swiggy:latest'
-            }
+        failure {
+            echo '❌ Deployment Failed!'
         }
     }
 }
