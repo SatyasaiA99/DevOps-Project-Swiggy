@@ -2,26 +2,14 @@ pipeline {
     agent any
 
     tools {
-        nodejs 'node23'   // Make sure this exists in Jenkins tools
-    }
-
-    environment {
-        APP_NAME = "swiggy-app"
-        CONTAINER_NAME = "swiggy-container"
+        nodejs 'node18'
     }
 
     stages {
 
         stage('Checkout Code') {
             steps {
-                git url: 'https://github.com/SatyasaiA99/DevOps-Project-Swiggy.git', branch: 'master'
-            }
-        }
-
-        stage('Check Node Version') {
-            steps {
-                sh 'node -v'
-                sh 'npm -v'
+                git 'https://github.com/SatyasaiA99/DevOps-Project-Swiggy.git'
             }
         }
 
@@ -31,34 +19,55 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t $APP_NAME .'
-            }
-        }
-
-        stage('Stop Old Container') {
+        stage('Build Artifact') {
             steps {
                 sh '''
-                docker stop $CONTAINER_NAME || true
-                docker rm $CONTAINER_NAME || true
+                rm -rf build
+                mkdir build
+                cp -r * build/
+                tar -czf node-app.tar.gz build
                 '''
             }
         }
 
-        stage('Run Container') {
+        stage('Archive Artifact') {
             steps {
-                sh 'docker run -d -p 3000:3000 --name $CONTAINER_NAME $APP_NAME'
+                archiveArtifacts artifacts: 'node-app.tar.gz', fingerprint: true
+            }
+        }
+
+        stage('Deploy & Run') {
+            steps {
+                sh '''
+                # Stop old Node app if running
+                pkill node || true
+
+                # Extract artifact
+                tar -xzf node-app.tar.gz
+                cd build
+
+                # Run app in background
+                nohup node index.js > app.log 2>&1 &
+                '''
+            }
+        }
+
+        stage('Verify App') {
+            steps {
+                sh '''
+                sleep 5
+                curl http://localhost:4000 || echo "App not reachable"
+                '''
             }
         }
     }
 
     post {
         success {
-            echo '✅ Deployment Successful!'
+            echo "✅ Application is running"
         }
         failure {
-            echo '❌ Deployment Failed!'
+            echo "❌ Pipeline failed"
         }
     }
 }
